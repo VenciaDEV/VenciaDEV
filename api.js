@@ -12,30 +12,44 @@ const client = new Client({
     ]
 });
 
+// Kullanıcı kodlarını saklayacak obje
+const userCodes = new Map();
 const verifiedUsers = new Set();
 
 app.use(cors());
 app.use(express.json());
 
-client.login(process.env.DISCORD_TOKEN);
-
-client.once('ready', () => {
-    console.log('Bot hazır!');
+// Yeni kod oluşturma endpoint'i
+app.post('/api/generate-code', (req, res) => {
+    const { userId } = req.body;
+    
+    // Benzersiz kod oluştur
+    const code = generateUniqueCode();
+    
+    // Kodu kullanıcıyla eşleştir
+    userCodes.set(userId, code);
+    
+    res.json({ code });
 });
 
+// Doğrulama endpoint'i
 app.post('/api/verify', async (req, res) => {
     const { userId, code, messageId, guildId } = req.body;
+    
+    // Kullanıcının doğru kodunu kontrol et
+    const correctCode = userCodes.get(userId);
+    
+    if (!correctCode || code !== correctCode) {
+        return res.json({ success: false, message: 'Hatalı kod!' });
+    }
 
     if (verifiedUsers.has(userId)) {
-        return res.json({ success: false, message: 'Bu kullanıcı zaten doğrulanmış!' });
+        return res.json({ success: false, message: 'Zaten doğrulanmış!' });
     }
 
     try {
-        // Kullanıcının bulunduğu sunucuyu bul
         const guild = await client.guilds.fetch(guildId);
         const member = await guild.members.fetch(userId);
-
-        // Sunucudaki "Verified" veya "Doğrulanmış" rolünü bul
         const role = guild.roles.cache.find(r => 
             r.name.toLowerCase().includes('verified') || 
             r.name.toLowerCase().includes('doğrulanmış')
@@ -46,15 +60,7 @@ app.post('/api/verify', async (req, res) => {
         }
         
         verifiedUsers.add(userId);
-
-        // DM mesajını düzenle
-        try {
-            const dmChannel = await member.createDM();
-            const message = await dmChannel.messages.fetch(messageId);
-            await message.edit('✅ Doğrulama başarılı! Rol verildi.');
-        } catch (error) {
-            console.error('Mesaj düzenleme hatası:', error);
-        }
+        userCodes.delete(userId); // Kullanılan kodu sil
 
         res.json({ success: true });
     } catch (error) {
@@ -63,7 +69,15 @@ app.post('/api/verify', async (req, res) => {
     }
 });
 
+function generateUniqueCode() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for(let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
+client.login(process.env.DISCORD_TOKEN);
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server çalışıyor: ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Server çalışıyor: ${PORT}`)); 
